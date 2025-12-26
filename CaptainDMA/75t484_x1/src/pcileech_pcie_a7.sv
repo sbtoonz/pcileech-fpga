@@ -46,6 +46,8 @@ module pcileech_pcie_a7(
     IfAXIS128               tlps_static();       // static tlp transmit from cfg->tlp
     wire [15:0]             pcie_id;
     wire                    user_lnk_up;
+    reg                     enumeration_seen = 0;
+    reg                     [23:0] enum_blink_cnt = 0;
     wire                    enumeration_done;
 
     // system interface
@@ -65,7 +67,23 @@ module pcileech_pcie_a7(
     time tickcount64_pcie_refclk = 0;
     always @ ( posedge pcie_clk_c )
         tickcount64_pcie_refclk <= tickcount64_pcie_refclk + 1;
-    assign led_state = user_lnk_up || tickcount64_pcie_refclk[25];
+    always @(posedge clk_pcie) begin
+        if (rst) begin
+            enumeration_seen <= 0;
+            enum_blink_cnt   <= 0;
+        end else begin
+            if (enumeration_done && !enumeration_seen) begin
+                enumeration_seen <= 1;
+                enum_blink_cnt   <= 24'd12_000_000; // ~0.2s at ~62.5MHz
+            end else if (enum_blink_cnt != 0) begin
+                enum_blink_cnt <= enum_blink_cnt - 1;
+            end
+        end
+    end
+
+assign led_state =
+    (enum_blink_cnt != 0) ? enum_blink_cnt[22] :
+    (user_lnk_up || tickcount64_pcie_refclk[25]);
     
     // ----------------------------------------------------------------------------
     // PCIe CFG RX/TX <--> FIFO below
