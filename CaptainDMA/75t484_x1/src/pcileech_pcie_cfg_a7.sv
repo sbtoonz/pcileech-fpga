@@ -14,6 +14,7 @@ module pcileech_pcie_cfg_a7(
     input                   rst,
     input                   clk_sys,
     input                   clk_pcie,
+    input                   enumeration_done, 
     IfPCIeFifoCfg.mp_pcie   dfifo,
     IfPCIeSignals.mpm       ctx,
     IfAXIS128.source        tlps_static,
@@ -387,43 +388,20 @@ module pcileech_pcie_cfg_a7(
             begin
 
                 // READ config
-                out_wren <= in_cmd_read; 
-                if (in_cmd_read) begin 
-                    out_data[31:16] <= in_cmd_address_byte;
-
-                    if (in_cmd_address_byte == 16'h0004) begin
-                        // Command register: force IO, MEM, Bus Master enabled
-                        out_data[15:0] <= in_cmd_data_in[15:0] | 16'b0000_0000_0000_0111;
+                out_wren <= in_cmd_read;
+                if ( in_cmd_read )
+                    begin
+                        out_data[31:16] <= in_cmd_address_byte;
+                        out_data[15:0]  <= {in_cmd_data_in[7:0], in_cmd_data_in[15:8]};
                     end
-                    else if (in_cmd_address_byte == 16'h0044) begin
-                        // PMCSR: force D0 (bits [1:0] = 00)
-                        out_data[15:0] <= {in_cmd_data_in[15:2], 2'b00};
-                    end
-                    else begin
-                        // Normal behavior
-                        out_data[15:0] <= {in_cmd_data_in[7:0], in_cmd_data_in[15:8]};
-                    end
-                end 
-
 
                 // WRITE config
-                if (in_cmd_write) begin
-                    for (i_write = 0; i_write < 16; i_write = i_write + 1)
-                        if (in_cmd_mask[i_write])
-                            rw[in_cmd_address_bit + i_write] <= in_cmd_value[i_write];
-
-                    // PATCH: Command Register - force IO/MEM/BM enabled
-                    if (in_cmd_address_byte == 16'h0004) begin
-                        rw[16'h0004 +: 16] <= (in_cmd_value[15:0] | 16'b0000_0000_0000_0111);
-                    end
-
-                    // PATCH: PMCSR - force D0 only if those bits are targeted
-                    if (in_cmd_address_byte == 16'h0044) begin
-                        if (in_cmd_mask[0] || in_cmd_mask[1]) begin
-                            rw[16'h0044 +: 2] <= 2'b00;
+                if ( in_cmd_write )
+                    for ( i_write = 0; i_write < 16; i_write = i_write + 1 )
+                        begin
+                            if ( in_cmd_mask[i_write] )
+                                rw[in_cmd_address_bit+i_write] <= in_cmd_value[i_write];
                         end
-                    end
-                end
 
                 // STATUS REGISTER CLEAR
                 if ( (rw[RWPOS_CFG_CFGSPACE_STATUS_CL_EN] | rw[RWPOS_CFG_CFGSPACE_COMMAND_EN]) & ~in_cmd_read & ~in_cmd_write & ~rw[RWPOS_CFG_RD_EN] & ~rw[RWPOS_CFG_WR_EN] & ~rwi_cfg_mgmt_rd_en & ~rwi_cfg_mgmt_wr_en )
