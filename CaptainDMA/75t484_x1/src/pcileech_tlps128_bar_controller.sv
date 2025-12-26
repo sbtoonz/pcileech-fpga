@@ -44,6 +44,7 @@ module pcileech_tlps128_bar_controller(
     input                   clk,
     input                   bar_en,
     input [15:0]            pcie_id,
+    output                  enumeration_done,
     IfAXIS128.sink_lite     tlps_in,
     IfAXIS128.source        tlps_out
 );
@@ -117,6 +118,7 @@ module pcileech_tlps128_bar_controller(
     wire [87:0] bar_rsp_ctx[7];
     wire [31:0] bar_rsp_data[7];
     wire        bar_rsp_valid[7];
+    reg         enumeration_done;
     
     assign rd_rsp_ctx = bar_rsp_valid[0] ? bar_rsp_ctx[0] :
                         bar_rsp_valid[1] ? bar_rsp_ctx[1] :
@@ -133,6 +135,13 @@ module pcileech_tlps128_bar_controller(
                         bar_rsp_valid[5] ? bar_rsp_data[5] :
                         bar_rsp_valid[6] ? bar_rsp_data[6] : 0;
     assign rd_rsp_valid = bar_rsp_valid[0] || bar_rsp_valid[1] || bar_rsp_valid[2] || bar_rsp_valid[3] || bar_rsp_valid[4] || bar_rsp_valid[5] || bar_rsp_valid[6];
+
+    always @(posedge clk) begin
+    if (rst)
+        enumeration_done <= 1'b0;
+    else if (!enumeration_done && bar_en && (rd_req_valid || wr_valid))
+        enumeration_done <= 1'b1;
+    end
     
     pcileech_bar_impl_zerowrite4k i_bar0(
         .rst            ( rst                           ),
