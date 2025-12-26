@@ -95,6 +95,8 @@ module pcileech_pcie_tlp_a7(
         .tlps_in3       ( tlps_rx_fifo.sink             ),
         .tlps_in4       ( tlps_static                   )
     );
+	
+	assign enumeration_done = enumeration_done_int;
 
 endmodule
 
@@ -347,7 +349,5 @@ module pcileech_tlps128_sink_mux1 (
     always @ ( posedge clk_pcie ) begin
         id <= rst ? 0 : id_next;
     end
-
-	assign enumeration_done = enumeration_done_int;
     
 endmodule
