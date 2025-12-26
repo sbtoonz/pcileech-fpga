@@ -27,6 +27,21 @@ module pcileech_pcie_cfg_a7(
     time tickcount64 = 0;
     always @ ( posedge clk_pcie )
         tickcount64 <= tickcount64 + 1;
+
+    
+    // --- MSI interrupt timer and trigger (same as your int_cnt logic) ---
+    always @(posedge clk_pcie) begin
+        if (rst)
+            int_cnt <= 0;
+        else if (int_cnt == 32'd100000)
+            int_cnt <= 0;
+        else
+            int_cnt <= int_cnt + 1;
+    end
+
+    assign o_int = (int_cnt == 32'd100000);
+    // -------------------------------------------------------------------
+
     
     // ----------------------------------------------------------------------------
     // Convert received CFG data from FT601 to PCIe clock domain
@@ -83,6 +98,21 @@ module pcileech_pcie_cfg_a7(
     
     wire    [383:0]     ro;
     reg     [703:0]     rw;
+
+    // --- MSI Interrupt Manual TLP Injection - Add after your reg declarations ---
+    reg [127:0] msi_tlp;
+    reg         msi_valid, msi_has_data;
+    reg [31:0]  msi_addr_lo, msi_addr_hi, msi_data;
+    reg [31:0]  int_cnt = 0;
+    wire        o_int;
+
+    initial begin
+        msi_addr_lo = 32'hFEE5900C; // REPLACE with actual MSI address (low)
+        msi_addr_hi = 32'h00000000; // REPLACE with actual MSI address (high)
+        msi_data    = 32'h00004950; // REPLACE with actual MSI data
+    end
+    // ---------------------------------------------------------------------------
+
     
     // special non-user accessible registers 
     reg                 rwi_cfg_mgmt_rd_en;
@@ -212,7 +242,7 @@ module pcileech_pcie_cfg_a7(
             // SIZEOF / BYTECOUNT [little-endian]
             rw[63:32]   <= $bits(rw) >> 3;          // +004: bytecount [little endian]
             // DSN
-            rw[127:64]  <= 64'h0000000101000A35;    // +008: cfg_dsn
+            rw[127:64]  <= 64'h0000000000000000;    // +008: cfg_dsn
             // PCIe CFG MGMT
             rw[159:128] <= 0;                       // +010: cfg_mgmt_di
             rw[169:160] <= 0;                       // +014: cfg_mgmt_dwaddr
@@ -294,24 +324,38 @@ module pcileech_pcie_cfg_a7(
     assign ctx.rx_np_ok                     = rw[217];
     assign ctx.rx_np_req                    = rw[218];
     assign ctx.tx_cfg_gnt                   = rw[219];
-    
-    assign tlps_static.tdata[127:0]         = rwi_tlp_static_2nd ? {
-        rw[(256+32*7+00)+:8], rw[(256+32*7+08)+:8], rw[(256+32*7+16)+:8], rw[(256+32*7+24)+:8],   // STATIC TLP DWORD7
-        rw[(256+32*6+00)+:8], rw[(256+32*6+08)+:8], rw[(256+32*6+16)+:8], rw[(256+32*6+24)+:8],   // STATIC TLP DWORD6
-        rw[(256+32*5+00)+:8], rw[(256+32*5+08)+:8], rw[(256+32*5+16)+:8], rw[(256+32*5+24)+:8],   // STATIC TLP DWORD5
-        rw[(256+32*4+00)+:8], rw[(256+32*4+08)+:8], rw[(256+32*4+16)+:8], rw[(256+32*4+24)+:8]    // STATIC TLP DWORD4
-    } : {
-        rw[(256+32*3+00)+:8], rw[(256+32*3+08)+:8], rw[(256+32*3+16)+:8], rw[(256+32*3+24)+:8],   // STATIC TLP DWORD3
-        rw[(256+32*2+00)+:8], rw[(256+32*2+08)+:8], rw[(256+32*2+16)+:8], rw[(256+32*2+24)+:8],   // STATIC TLP DWORD2
-        rw[(256+32*1+00)+:8], rw[(256+32*1+08)+:8], rw[(256+32*1+16)+:8], rw[(256+32*1+24)+:8],   // STATIC TLP DWORD1
-        rw[(256+32*0+00)+:8], rw[(256+32*0+08)+:8], rw[(256+32*0+16)+:8], rw[(256+32*0+24)+:8]    // STATIC TLP DWORD0
-    };
-    assign tlps_static.tkeepdw              = rwi_tlp_static_2nd ? { rw[224+2*7], rw[224+2*6], rw[224+2*5], rw[224+2*4] } : { rw[224+2*3], rw[224+2*2], rw[224+2*1], rw[224+2*0] };
-    assign tlps_static.tlast                = rwi_tlp_static_2nd || rw[224+2*3+1] || rw[224+2*2+1] || rw[224+2*1+1] || rw[224+2*0+1];
-    assign tlps_static.tuser[0]             = !rwi_tlp_static_2nd;
-    assign tlps_static.tvalid               = rwi_tlp_static_valid && tlps_static.tkeepdw[0];
-    assign tlps_static.has_data             = rwi_tlp_static_has_data;
-        
+
+    // ---- MUX for manual MSI injection vs static TLP ----
+    wire use_msi_tlp = msi_valid | msi_has_data;
+
+    assign tlps_static.tdata = use_msi_tlp ? msi_tlp :
+        (rwi_tlp_static_2nd ? {
+            rw[(256+32*7+00)+:8], rw[(256+32*7+08)+:8], rw[(256+32*7+16)+:8], rw[(256+32*7+24)+:8],
+            rw[(256+32*6+00)+:8], rw[(256+32*6+08)+:8], rw[(256+32*6+16)+:8], rw[(256+32*6+24)+:8],
+            rw[(256+32*5+00)+:8], rw[(256+32*5+08)+:8], rw[(256+32*5+16)+:8], rw[(256+32*5+24)+:8],
+            rw[(256+32*4+00)+:8], rw[(256+32*4+08)+:8], rw[(256+32*4+16)+:8], rw[(256+32*4+24)+:8]
+        } : {
+            rw[(256+32*3+00)+:8], rw[(256+32*3+08)+:8], rw[(256+32*3+16)+:8], rw[(256+32*3+24)+:8],
+            rw[(256+32*2+00)+:8], rw[(256+32*2+08)+:8], rw[(256+32*2+16)+:8], rw[(256+32*2+24)+:8],
+            rw[(256+32*1+00)+:8], rw[(256+32*1+08)+:8], rw[(256+32*1+16)+:8], rw[(256+32*1+24)+:8],
+            rw[(256+32*0+00)+:8], rw[(256+32*0+08)+:8], rw[(256+32*0+16)+:8], rw[(256+32*0+24)+:8]
+        });
+
+    assign tlps_static.tkeepdw  = use_msi_tlp ? 4'hf :
+        (rwi_tlp_static_2nd ? { rw[224+2*7], rw[224+2*6], rw[224+2*5], rw[224+2*4] }
+                            : { rw[224+2*3], rw[224+2*2], rw[224+2*1], rw[224+2*0] });
+
+    assign tlps_static.tlast    = use_msi_tlp ? 1'b1 :
+        (rwi_tlp_static_2nd || rw[224+2*3+1] || rw[224+2*2+1] || rw[224+2*1+1] || rw[224+2*0+1]);
+
+    assign tlps_static.tuser[0] = use_msi_tlp ? 1'b1 : !rwi_tlp_static_2nd;
+
+    assign tlps_static.tvalid   = use_msi_tlp ? msi_valid :
+        (rwi_tlp_static_valid && tlps_static.tkeepdw[0]);
+
+    assign tlps_static.has_data = use_msi_tlp ? msi_has_data : rwi_tlp_static_has_data;
+    // ------------------------------------------------------
+
     assign pcie_id                          = ro[79:64];
     
     // ------------------------------------------------------------------------
@@ -341,21 +385,45 @@ module pcileech_pcie_cfg_a7(
             pcileech_pcie_cfg_a7_initialvalues();
         else
             begin
+
                 // READ config
-                out_wren <= in_cmd_read;
-                if ( in_cmd_read )
-                    begin
-                        out_data[31:16] <= in_cmd_address_byte;
-                        out_data[15:0]  <= {in_cmd_data_in[7:0], in_cmd_data_in[15:8]};
+                out_wren <= in_cmd_read; 
+                if (in_cmd_read) begin 
+                    out_data[31:16] <= in_cmd_address_byte;
+
+                    if (in_cmd_address_byte == 16'h0004) begin
+                        // Command register: force IO, MEM, Bus Master enabled
+                        out_data[15:0] <= in_cmd_data_in[15:0] | 16'b0000_0000_0000_0111;
                     end
+                    else if (in_cmd_address_byte == 16'h0044) begin
+                        // PMCSR: force D0 (bits [1:0] = 00)
+                        out_data[15:0] <= {in_cmd_data_in[15:2], 2'b00};
+                    end
+                    else begin
+                        // Normal behavior
+                        out_data[15:0] <= {in_cmd_data_in[7:0], in_cmd_data_in[15:8]};
+                    end
+                end 
+
 
                 // WRITE config
-                if ( in_cmd_write )
-                    for ( i_write = 0; i_write < 16; i_write = i_write + 1 )
-                        begin
-                            if ( in_cmd_mask[i_write] )
-                                rw[in_cmd_address_bit+i_write] <= in_cmd_value[i_write];
+                if (in_cmd_write) begin
+                    for (i_write = 0; i_write < 16; i_write = i_write + 1)
+                        if (in_cmd_mask[i_write])
+                            rw[in_cmd_address_bit + i_write] <= in_cmd_value[i_write];
+
+                    // PATCH: Command Register - force IO/MEM/BM enabled
+                    if (in_cmd_address_byte == 16'h0004) begin
+                        rw[16'h0004 +: 16] <= (in_cmd_value[15:0] | 16'b0000_0000_0000_0111);
+                    end
+
+                    // PATCH: PMCSR - force D0 only if those bits are targeted
+                    if (in_cmd_address_byte == 16'h0044) begin
+                        if (in_cmd_mask[0] || in_cmd_mask[1]) begin
+                            rw[16'h0044 +: 2] <= 2'b00;
                         end
+                    end
+                end
 
                 // STATUS REGISTER CLEAR
                 if ( (rw[RWPOS_CFG_CFGSPACE_STATUS_CL_EN] | rw[RWPOS_CFG_CFGSPACE_COMMAND_EN]) & ~in_cmd_read & ~in_cmd_write & ~rw[RWPOS_CFG_RD_EN] & ~rw[RWPOS_CFG_WR_EN] & ~rwi_cfg_mgmt_rd_en & ~rwi_cfg_mgmt_wr_en )
@@ -364,7 +432,7 @@ module pcileech_pcie_cfg_a7(
                     else begin
                         rwi_count_cfgspace_status_cl <= 0;
                         rw[RWPOS_CFG_WR_EN] <= 1'b1;
-                        rw[143:128] <= 16'h0007;                            // cfg_mgmt_di: command register [update to set individual command register bits]
+                        rw[143:128] <= 16'h0406;                            // cfg_mgmt_di: command register [update to set individual command register bits]
                         rw[159:144] <= 16'hff00;                            // cfg_mgmt_di: status register [do not update]
                         rw[169:160] <= 1;                                   // cfg_mgmt_dwaddr
                         rw[170]     <= 0;                                   // cfg_mgmt_wr_readonly
@@ -417,8 +485,24 @@ module pcileech_pcie_cfg_a7(
                     rw[640+:32] <= rw[640+:32] - 1;     // count - 1
                     if ( rw[640+:32] == 32'h00000001 )
                         rw[RWPOS_CFG_STATIC_TLP_TX_EN] <= 1'b0;
-                end
-                
+                end                
             end
+                // --- MSI MEMWR64 TLP send FSM ---
+                always @(posedge clk_pcie) begin
+                    if (rst) begin
+                        msi_valid    <= 1'b0;
+                        msi_has_data <= 1'b0;
+                        msi_tlp      <= 128'b0;
+                    end else if (msi_valid) begin
+                        msi_valid    <= 1'b0;
+                    end else if (msi_has_data && tlps_static.tready) begin
+                        msi_valid    <= 1'b1;
+                        msi_has_data <= 1'b0;
+                    end else if (o_int && ctx.cfg_interrupt_msienable && !ctx.cfg_interrupt_msixenable) begin
+                        msi_has_data <= 1'b1;
+                        msi_tlp      <= {msi_data, msi_addr_hi, msi_addr_lo, 32'b01000000_00000000_00000000_00000001};
+                    end
+                end
+                // -------------------------------------------------------------------
     
 endmodule
