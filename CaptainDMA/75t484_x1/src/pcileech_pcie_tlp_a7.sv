@@ -14,6 +14,7 @@ module pcileech_pcie_tlp_a7(
     input                   rst,
     input                   clk_pcie,
     input                   clk_sys,
+	output                  enumeration_done,
     IfPCIeFifoTlp.mp_pcie   dfifo,
     
     // PCIe core receive/transmit data
@@ -26,6 +27,7 @@ module pcileech_pcie_tlp_a7(
     
     IfAXIS128 tlps_bar_rsp();
     IfAXIS128 tlps_cfg_rsp();
+	wire enumeration_done_int;
     
     // ------------------------------------------------------------------------
     // Convert received TLPs from PCIe core and transmit onwards:
@@ -37,6 +39,7 @@ module pcileech_pcie_tlp_a7(
         .clk            ( clk_pcie                      ),
         .bar_en         ( dshadow2fifo.bar_en           ),
         .pcie_id        ( pcie_id                       ),
+		.enumeration_done   ( enumeration_done_int 		),
         .tlps_in        ( tlps_rx                       ),
         .tlps_out       ( tlps_bar_rsp.source           )
     );
@@ -344,5 +347,7 @@ module pcileech_tlps128_sink_mux1 (
     always @ ( posedge clk_pcie ) begin
         id <= rst ? 0 : id_next;
     end
+
+	assign enumeration_done = enumeration_done_int;
     
 endmodule
