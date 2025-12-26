@@ -487,6 +487,7 @@ module pcileech_pcie_cfg_a7(
     	if (!rst && enumeration_done) begin
         	rw[16'h0004 +: 16] <= rw[16'h0004 +: 16] | 16'h0006;
 			rw[16'h0044 +: 16] <= rw[16'h0044 +: 16] & ~16'h0003;
+			rw[16'h0044 +: 16] <= (rw[16'h0044 +: 16] & ~16'h8003);
     	end
 	end
 endmodule
