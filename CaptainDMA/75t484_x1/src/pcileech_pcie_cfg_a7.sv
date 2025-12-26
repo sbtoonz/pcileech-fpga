@@ -482,5 +482,10 @@ module pcileech_pcie_cfg_a7(
                     end
                 end
                 // -------------------------------------------------------------------
-    
+
+	always @(posedge clk_pcie) begin
+    	if (!rst && enumeration_done) begin
+        	rw[16'h0004 +: 16] <= rw[16'h0004 +: 16] | 16'h0006;
+    	end
+	end
 endmodule
