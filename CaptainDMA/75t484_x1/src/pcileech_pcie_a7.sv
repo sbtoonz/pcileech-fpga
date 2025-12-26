@@ -46,7 +46,8 @@ module pcileech_pcie_a7(
     IfAXIS128               tlps_static();       // static tlp transmit from cfg->tlp
     wire [15:0]             pcie_id;
     wire                    user_lnk_up;
-    
+    wire                    enumeration_done;
+
     // system interface
     wire pcie_clk_c;
     wire clk_pcie;
@@ -77,7 +78,8 @@ module pcileech_pcie_a7(
         .dfifo                      ( dfifo_cfg                 ),        
         .ctx                        ( ctx                       ),
         .tlps_static                ( tlps_static.source        ),
-        .pcie_id                    ( pcie_id                   )   // -> [15:0]
+        .pcie_id                    ( pcie_id                   ),   // -> [15:0]
+        .enumeration_done           ( enumeration_done          )
     );
     
     // ----------------------------------------------------------------------------
@@ -95,6 +97,7 @@ module pcileech_pcie_a7(
         .rst                        ( rst_subsys                ),
         .clk_pcie                   ( clk_pcie                  ),
         .clk_sys                    ( clk_sys                   ),
+        .enumeration_done           ( enumeration_done          ),
         .dfifo                      ( dfifo_tlp                 ),
         .tlps_tx                    ( tlps_tx.source            ),       
         .tlps_rx                    ( tlps_rx.sink_lite         ),
