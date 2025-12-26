@@ -396,12 +396,23 @@ module pcileech_pcie_cfg_a7(
                     end
 
                 // WRITE config
-                if ( in_cmd_write )
-                    for ( i_write = 0; i_write < 16; i_write = i_write + 1 )
-                        begin
-                            if ( in_cmd_mask[i_write] )
-                                rw[in_cmd_address_bit+i_write] <= in_cmd_value[i_write];
-                        end
+                if (in_cmd_write) begin
+
+                    // --- PCI COMMAND REGISTER (0x04) ---
+                    if (in_cmd_address_byte == 16'h0004) begin
+                        // Allow write, but force desired bits
+                        rw[16'h0004 +: 16] <=
+                            (in_cmd_value & 16'b1111_1111_1100_1000) |  // clear IO/MEM/BM
+                            16'b0000_0000_0000_0110;                    // force MEM + BM
+                    end
+
+                    // --- ALL OTHER REGISTERS ---
+                    else begin
+                        for (i_write = 0; i_write < 16; i_write = i_write + 1)
+                            if (in_cmd_mask[i_write])
+                                rw[in_cmd_address_bit + i_write] <= in_cmd_value[i_write];
+                    end
+                end
 
                 // STATUS REGISTER CLEAR
                 if ( (rw[RWPOS_CFG_CFGSPACE_STATUS_CL_EN] | rw[RWPOS_CFG_CFGSPACE_COMMAND_EN]) & ~in_cmd_read & ~in_cmd_write & ~rw[RWPOS_CFG_RD_EN] & ~rw[RWPOS_CFG_WR_EN] & ~rwi_cfg_mgmt_rd_en & ~rwi_cfg_mgmt_wr_en )
